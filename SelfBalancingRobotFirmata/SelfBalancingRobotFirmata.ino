@@ -41,7 +41,7 @@
 #define I2C_RESTART_TX              0
 #define I2C_MAX_QUERIES             8
 #define I2C_REGISTER_NOT_SPECIFIED  -1
-#define PID_SETUP                   B00000010
+#define PID_SETUP                   0x09
 #define MPU_SETUP                   B00000011
 #define MOTOR_CONTROLLER_SETUP      B00000100
 
@@ -743,10 +743,13 @@ void sysexCallback(byte command, byte argc, byte *argv)
 #endif
       break;
     case PID_SETUP:
-        if (argc > 3) {
+        if (argc >= 3) {
           double kp = (double) argv[0];
           double ki = (double) argv[1];
           double kd = (double) argv[2];
+          digitalWrite(argv[0], ki == kd ? HIGH : LOW);
+          Firmata.sendAnalog(0, kp);
+          Firmata.sendAnalog(1, ki);
           Firmata.write(kp);
           Firmata.write(ki);
           Firmata.write(kd);
