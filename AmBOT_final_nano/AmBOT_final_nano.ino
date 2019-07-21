@@ -1,5 +1,5 @@
-#include <PID_v1.h>
-#include <LMotorController.h>
+#include "PID_v1.h"
+#include "LMotorController.h"
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 
@@ -30,9 +30,9 @@ double setpoint = originalSetpoint;
 double movingAngleOffset = 0.1;
 double input, output;
 int moveState=0; //0 = balance; 1 = back; 2 = forth
-double Kp = 50;
+double Kp = 70;
 double Kd = 1.4;
-double Ki = 60;
+double Ki = 20;
 PID pid(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 
 double motorSpeedFactorLeft = 0.6;
@@ -186,6 +186,3 @@ void loop()
         input = ypr[1] * 180/M_PI + 180;
    }
 }
-
-
-

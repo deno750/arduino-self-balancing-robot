@@ -42,8 +42,8 @@
 #define I2C_MAX_QUERIES             8
 #define I2C_REGISTER_NOT_SPECIFIED  -1
 #define PID_SETUP                   0x09
-#define MPU_SETUP                   B00000011
-#define MOTOR_CONTROLLER_SETUP      B00000100
+#define MPU_SETUP                   0x0A
+#define MOTOR_CONTROLLER_SETUP      0x0B
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL   1
@@ -743,18 +743,21 @@ void sysexCallback(byte command, byte argc, byte *argv)
 #endif
       break;
     case PID_SETUP:
-        if (argc >= 3) {
-          double kp = (double) argv[0];
-          double ki = (double) argv[1];
-          double kd = (double) argv[2];
-          digitalWrite(argv[0], ki == kd ? HIGH : LOW);
-          Firmata.sendAnalog(0, kp);
-          Firmata.sendAnalog(1, ki);
-          Firmata.write(kp);
-          Firmata.write(ki);
-          Firmata.write(kd);
-          pid.SetTunings(kp, ki, kd);
-        }
+        double kp = *((double *) argv);
+        double ki = *((double *) (argv + 4));
+        double kd = *((double *) (argv + 8));
+        digitalWrite(9, HIGH);
+        pid.SetTunings(kp, ki, kd);
+      break;
+
+      case MPU_SETUP:
+        /*int16_t xGyro = *((int16_t *) argv);
+        int16_t yGyro = *((int16_t *) (argv + 2));
+        int16_t zGyro = *((int16_t *) (argv + 4));
+        int16_t xAccel = *((int16_t *) (argv + 6));
+        int16_t yAccel = *((int16_t *) (argv + 8));
+        int16_t zAccel = *((int16_t *) (argv + 10));*/
+        digitalWrite(8, HIGH);
       break;
   }
 }
@@ -839,7 +842,7 @@ void setup()
     ; // wait for serial port to connect. Needed for ATmega32u4-based boards and Arduino 101
   }
 
-   /* // initialize device
+    /*// initialize device
     Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
 
@@ -916,12 +919,65 @@ void loop()
   while (Firmata.available())
     Firmata.processInput();
 
-  // TODO - ensure that Stream buffer doesn't go over 60 bytes
+  // if programming failed, don't try to do anything
+    if (!dmpReady) return;
+
+    // wait for MPU interrupt or extra packet(s) available
+    while (!mpuInterrupt && fifoCount < packetSize)
+    {
+        //no mpu data - performing PID calculations and output to motors
+        
+        pid.Compute();
+        motorController.move(output, MIN_ABS_SPEED);
+        
+    }
+
+    // reset interrupt flag and get INT_STATUS byte
+    mpuInterrupt = false;
+    mpuIntStatus = mpu.getIntStatus();
+
+    // get current FIFO count
+    fifoCount = mpu.getFIFOCount();
+
+    // check for overflow (this should never happen unless our code is too inefficient)
+    if ((mpuIntStatus & 0x10) || fifoCount == 1024)
+    {
+        // reset so we can continue cleanly
+        mpu.resetFIFO();
+        Serial.println(F("FIFO overflow!"));
+
+    // otherwise, check for DMP data ready interrupt (this should happen frequently)
+    }
+    else if (mpuIntStatus & 0x02)
+    {
+        // wait for correct available data length, should be a VERY short wait
+        while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+
+        // read a packet from FIFO
+        mpu.getFIFOBytes(fifoBuffer, packetSize);
+        
+        // track FIFO count here in case there is > 1 packet available
+        // (this lets us immediately read more without waiting for an interrupt)
+        fifoCount -= packetSize;
+
+        mpu.dmpGetQuaternion(&q, fifoBuffer);
+        mpu.dmpGetGravity(&gravity, &q);
+        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+        #if LOG_INPUT
+            Serial.print("ypr\t");
+            Serial.print(ypr[0] * 180/M_PI);
+            Serial.print("\t");
+            Serial.print(ypr[1] * 180/M_PI);
+            Serial.print("\t");
+            Serial.println(ypr[2] * 180/M_PI);
+        #endif
+        input = ypr[1] * 180/M_PI + 180;
+   }
 
   currentMillis = millis();
   if (currentMillis - previousMillis > samplingInterval) {
     previousMillis += samplingInterval;
-    /* ANALOGREAD - do all analogReads() at the configured sampling interval */
+    // ANALOGREAD - do all analogReads() at the configured sampling interval //
     for (pin = 0; pin < TOTAL_PINS; pin++) {
       if (IS_PIN_ANALOG(pin) && Firmata.getPinMode(pin) == PIN_MODE_ANALOG) {
         analogPin = PIN_TO_ANALOG(pin);
