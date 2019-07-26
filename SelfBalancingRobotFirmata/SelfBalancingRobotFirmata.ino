@@ -30,13 +30,13 @@
 #include "LMotorController.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 
-#define I2C_WRITE                   B00000000
-#define I2C_READ                    B00001000
-#define I2C_READ_CONTINUOUSLY       B00010000
-#define I2C_STOP_READING            B00011000
-#define I2C_READ_WRITE_MODE_MASK    B00011000
-#define I2C_10BIT_ADDRESS_MODE_MASK B00100000
-#define I2C_END_TX_MASK             B01000000
+#define I2C_WRITE                   0x00
+#define I2C_READ                    0x08
+#define I2C_READ_CONTINUOUSLY       0x10
+#define I2C_STOP_READING            0x18
+#define I2C_READ_WRITE_MODE_MASK    0x18
+#define I2C_10BIT_ADDRESS_MODE_MASK 0x20
+#define I2C_END_TX_MASK             0x40
 #define I2C_STOP_TX                 1
 #define I2C_RESTART_TX              0
 #define I2C_MAX_QUERIES             8
@@ -117,10 +117,12 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 //PID
 double originalSetpoint = 175.8;
 double setpoint = originalSetpoint;
+double movingAngleOffset = 0.1;
 double input, output;
-double Kp = 50;
-double Kd = 1.4;
-double Ki = 60;
+int moveState=0; //0 = balance; 1 = back; 2 = forth
+double Kp = 0;
+double Kd = 0;
+double Ki = 0;
 PID pid(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 
 double motorSpeedFactorLeft = 0.6;
@@ -134,11 +136,14 @@ int IN4 = 9;
 int ENB = 10;
 LMotorController motorController(ENA, IN1, IN2, ENB, IN3, IN4, motorSpeedFactorLeft, motorSpeedFactorRight);
 
+
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 void dmpDataReady()
 {
     mpuInterrupt = true;
 }
+
+boolean mpuInitialized = false;
 
 // Forward declare a few functions to avoid compiler errors with older versions
 // of the Arduino IDE.
@@ -534,6 +539,12 @@ void sysexCallback(byte command, byte argc, byte *argv)
   int slaveRegister;
   unsigned int delayTime;
 
+  digitalWrite(8, argc & 0x10 ? HIGH : LOW);
+  digitalWrite(9, argc & 0x08 ? HIGH : LOW);
+  digitalWrite(10, argc & 0x04 ? HIGH : LOW);
+  digitalWrite(11, argc & 0x02 ? HIGH : LOW);
+  digitalWrite(12, argc & 0x01 ? HIGH : LOW);
+
   switch (command) {
     case I2C_REQUEST:
       mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
@@ -742,22 +753,70 @@ void sysexCallback(byte command, byte argc, byte *argv)
       serialFeature.handleSysex(command, argc, argv);
 #endif
       break;
-    case PID_SETUP:
-        double kp = *((double *) argv);
-        double ki = *((double *) (argv + 4));
-        double kd = *((double *) (argv + 8));
-        digitalWrite(9, HIGH);
-        pid.SetTunings(kp, ki, kd);
-      break;
+    case MPU_SETUP:
 
-      case MPU_SETUP:
-        /*int16_t xGyro = *((int16_t *) argv);
+        int16_t xGyro = *((int16_t *) argv);
         int16_t yGyro = *((int16_t *) (argv + 2));
         int16_t zGyro = *((int16_t *) (argv + 4));
         int16_t xAccel = *((int16_t *) (argv + 6));
         int16_t yAccel = *((int16_t *) (argv + 8));
-        int16_t zAccel = *((int16_t *) (argv + 10));*/
-        digitalWrite(8, HIGH);
+        int16_t zAccel = *((int16_t *) (argv + 10));
+        
+        if (!mpuInitialized) {
+            mpu.initialize();
+            devStatus = mpu.dmpInitialize();
+            mpu.setXGyroOffset(xGyro);
+            mpu.setYGyroOffset(yGyro);
+            mpu.setZGyroOffset(zGyro);
+            //mpu.setXAccelOffset(xAccel);
+            //mpu.setYAccelOffset(yAccel);
+            mpu.setZAccelOffset(zAccel);
+
+            // make sure it worked (returns 0 if so)
+            if (devStatus == 0)
+            {
+                // turn on the DMP, now that it's ready
+                //Firmata.sendString("Enabling DMP...");
+                mpu.setDMPEnabled(true);
+        
+                // enable Arduino interrupt detection
+                //Firmata.sendString("Enabling interrupt detection (Arduino external interrupt 0)...");
+                attachInterrupt(0, dmpDataReady, RISING);
+                mpuIntStatus = mpu.getIntStatus();
+        
+                // set our DMP Ready flag so the main loop() function knows it's okay to use it
+                //Firmata.sendString("DMP ready! Waiting for first interrupt...");
+                // get expected DMP packet size for later comparison
+                packetSize = mpu.dmpGetFIFOPacketSize();
+                
+                //setup PID
+                
+                pid.SetMode(AUTOMATIC);
+                pid.SetSampleTime(10);
+                pid.SetOutputLimits(-255, 255);  
+
+                dmpReady = true;
+
+                mpuInitialized = true;
+    
+                
+            } else {
+              
+            }
+        }
+       
+        /*mpu.setXGyroOffset(xGyro);
+        mpu.setYGyroOffset(yGyro);
+        mpu.setZGyroOffset(zGyro);
+        mpu.setXAccelOffset(xAccel);
+        mpu.setYAccelOffset(yAccel);
+        mpu.setZAccelOffset(zAccel);*/
+      break;
+    case PID_SETUP:
+        double kp = *((double *) argv);
+        double ki = *((double *) (argv + 4));
+        double kd = *((double *) (argv + 8));
+        pid.SetTunings(kp, ki, kd);
       break;
   }
 }
@@ -831,27 +890,17 @@ void setup()
   Firmata.attach(START_SYSEX, sysexCallback);
   Firmata.attach(SYSTEM_RESET, systemResetCallback);
 
-  // to use a port other than Serial, such as Serial1 on an Arduino Leonardo or Mega,
-  // Call begin(baud) on the alternate serial port and pass it to Firmata to begin like this:
-  // Serial1.begin(57600);
-  // Firmata.begin(Serial1);
-  // However do not do this if you are using SERIAL_MESSAGE
+  Wire.begin();
 
   Firmata.begin(57600);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for ATmega32u4-based boards and Arduino 101
   }
+  //systemResetCallback();  // reset to default config
 
-    /*// initialize device
-    Serial.println(F("Initializing I2C devices..."));
-    mpu.initialize();
+  /*mpu.initialize();
 
-    // verify connection
-    Firmata.sendString("Testing device connections...");
-    Firmata.sendString(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
-
-    // load and configure the DMP
-    Firmata.sendString("Initializing DMP...");
+   
     devStatus = mpu.dmpInitialize();
 
     // supply your own gyro offsets here, scaled for min sensitivity
@@ -864,16 +913,16 @@ void setup()
     if (devStatus == 0)
     {
         // turn on the DMP, now that it's ready
-        Firmata.sendString("Enabling DMP...");
+       
         mpu.setDMPEnabled(true);
 
         // enable Arduino interrupt detection
-        Firmata.sendString("Enabling interrupt detection (Arduino external interrupt 0)...");
+       
         attachInterrupt(0, dmpDataReady, RISING);
         mpuIntStatus = mpu.getIntStatus();
 
         // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        Firmata.sendString("DMP ready! Waiting for first interrupt...");
+        
         dmpReady = true;
 
         // get expected DMP packet size for later comparison
@@ -884,23 +933,7 @@ void setup()
         pid.SetMode(AUTOMATIC);
         pid.SetSampleTime(10);
         pid.SetOutputLimits(-255, 255);  
-    }
-    else
-    {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
-        if (devStatus == 1) {
-          Firmata.sendString("DMP Initialization failed: initial memory load failed");
-        } else if (devStatus == 2) {
-          Firmata.sendString("DMP Initialization failed: DMP configuration updates failed");
-        } else {
-          Firmata.sendString("Unknown error");
-        }
-   
     }*/
-  systemResetCallback();  // reset to default config
 }
 
 /*==============================================================================
@@ -916,7 +949,7 @@ void loop()
 
   /* STREAMREAD - processing incoming messagse as soon as possible, while still
    * checking digital inputs.  */
-  while (Firmata.available())
+  while (Firmata.available()) 
     Firmata.processInput();
 
   // if programming failed, don't try to do anything
@@ -944,7 +977,7 @@ void loop()
     {
         // reset so we can continue cleanly
         mpu.resetFIFO();
-        Serial.println(F("FIFO overflow!"));
+        //Serial.println(F("FIFO overflow!"));
 
     // otherwise, check for DMP data ready interrupt (this should happen frequently)
     }
@@ -963,14 +996,6 @@ void loop()
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-        #if LOG_INPUT
-            Serial.print("ypr\t");
-            Serial.print(ypr[0] * 180/M_PI);
-            Serial.print("\t");
-            Serial.print(ypr[1] * 180/M_PI);
-            Serial.print("\t");
-            Serial.println(ypr[2] * 180/M_PI);
-        #endif
         input = ypr[1] * 180/M_PI + 180;
    }
 
