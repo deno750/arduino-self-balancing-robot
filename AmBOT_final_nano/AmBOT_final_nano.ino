@@ -30,8 +30,8 @@ double setpoint = originalSetpoint;
 double movingAngleOffset = 0.1;
 double input, output;
 int moveState=0; //0 = balance; 1 = back; 2 = forth
-double Kp = 70;
-double Kd = 0.6;
+double Kp = 90;
+double Kd = 1.4;
 double Ki = 60;
 PID pid(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
 

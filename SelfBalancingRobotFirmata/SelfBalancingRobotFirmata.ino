@@ -42,7 +42,7 @@
 #define I2C_MAX_QUERIES             8
 #define I2C_REGISTER_NOT_SPECIFIED  -1
 #define PID_SETUP                   0x09
-#define MPU_SETUP                   0x0A
+#define MPU_SETUP                   0x1A
 #define MOTOR_CONTROLLER_SETUP      0x0B
 
 // the minimum interval for sampling analog input
@@ -120,10 +120,7 @@ double setpoint = originalSetpoint;
 double movingAngleOffset = 0.1;
 double input, output;
 int moveState=0; //0 = balance; 1 = back; 2 = forth
-double Kp = 0;
-double Kd = 0;
-double Ki = 0;
-PID pid(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
+PID pid(&input, &output, &setpoint, 0, 0, 0, DIRECT);
 
 double motorSpeedFactorLeft = 0.6;
 double motorSpeedFactorRight = 0.5;
@@ -539,14 +536,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
   int slaveRegister;
   unsigned int delayTime;
 
-  digitalWrite(8, argc & 0x10 ? HIGH : LOW);
-  digitalWrite(9, argc & 0x08 ? HIGH : LOW);
-  digitalWrite(10, argc & 0x04 ? HIGH : LOW);
-  digitalWrite(11, argc & 0x02 ? HIGH : LOW);
-  digitalWrite(12, argc & 0x01 ? HIGH : LOW);
-
   switch (command) {
-    case I2C_REQUEST:
+    case I2C_REQUEST: {
       mode = argv[1] & I2C_READ_WRITE_MODE_MASK;
       if (argv[1] & I2C_10BIT_ADDRESS_MODE_MASK) {
         Firmata.sendString("10-bit addressing not supported");
@@ -643,7 +634,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
           break;
       }
       break;
-    case I2C_CONFIG:
+    }
+    case I2C_CONFIG: {
       delayTime = (argv[0] + (argv[1] << 7));
 
       if (argc > 1 && delayTime > 0) {
@@ -655,7 +647,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
 
       break;
-    case SERVO_CONFIG:
+    }
+    case SERVO_CONFIG: {
       if (argc > 4) {
         // these vars are here for clarity, they'll optimized away by the compiler
         byte pin = argv[0];
@@ -671,7 +664,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
         }
       }
       break;
-    case SAMPLING_INTERVAL:
+    }
+    case SAMPLING_INTERVAL: {
       if (argc > 1) {
         samplingInterval = argv[0] + (argv[1] << 7);
         if (samplingInterval < MINIMUM_SAMPLING_INTERVAL) {
@@ -681,7 +675,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
         //Firmata.sendString("Not enough data");
       }
       break;
-    case EXTENDED_ANALOG:
+    }
+    case EXTENDED_ANALOG: {
       if (argc > 1) {
         int val = argv[1];
         if (argc > 2) val |= (argv[2] << 7);
@@ -689,7 +684,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
         analogWriteCallback(argv[0], val);
       }
       break;
-    case CAPABILITY_QUERY:
+    }
+    case CAPABILITY_QUERY: {
       Firmata.write(START_SYSEX);
       Firmata.write(CAPABILITY_RESPONSE);
       for (byte pin = 0; pin < TOTAL_PINS; pin++) {
@@ -717,14 +713,15 @@ void sysexCallback(byte command, byte argc, byte *argv)
           Firmata.write(PIN_MODE_I2C);
           Firmata.write(1);  // TODO: could assign a number to map to SCL or SDA
         }
-#ifdef FIRMATA_SERIAL_FEATURE
+        #ifdef FIRMATA_SERIAL_FEATURE
         serialFeature.handleCapability(pin);
-#endif
+        #endif
         Firmata.write(127);
       }
       Firmata.write(END_SYSEX);
       break;
-    case PIN_STATE_QUERY:
+    }
+    case PIN_STATE_QUERY: {
       if (argc > 0) {
         byte pin = argv[0];
         Firmata.write(START_SYSEX);
@@ -739,7 +736,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
         Firmata.write(END_SYSEX);
       }
       break;
-    case ANALOG_MAPPING_QUERY:
+    }
+    case ANALOG_MAPPING_QUERY: {
       Firmata.write(START_SYSEX);
       Firmata.write(ANALOG_MAPPING_RESPONSE);
       for (byte pin = 0; pin < TOTAL_PINS; pin++) {
@@ -747,77 +745,84 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
       Firmata.write(END_SYSEX);
       break;
+    }
 
-    case SERIAL_MESSAGE:
-#ifdef FIRMATA_SERIAL_FEATURE
+
+
+    case SERIAL_MESSAGE:{
+      #ifdef FIRMATA_SERIAL_FEATURE
       serialFeature.handleSysex(command, argc, argv);
-#endif
+      #endif
       break;
-    case MPU_SETUP:
-
+      Firmata.write(START_SYSEX);
+      Firmata.write(ANALOG_MAPPING_RESPONSE);
+      for (byte pin = 0; pin < TOTAL_PINS; pin++) {
+        Firmata.write(IS_PIN_ANALOG(pin) ? PIN_TO_ANALOG(pin) : 127);
+      }
+      Firmata.write(END_SYSEX);
+      break;
+    }
+      case MPU_SETUP: {
         int16_t xGyro = *((int16_t *) argv);
         int16_t yGyro = *((int16_t *) (argv + 2));
         int16_t zGyro = *((int16_t *) (argv + 4));
         int16_t xAccel = *((int16_t *) (argv + 6));
         int16_t yAccel = *((int16_t *) (argv + 8));
         int16_t zAccel = *((int16_t *) (argv + 10));
-        
-        if (!mpuInitialized) {
-            mpu.initialize();
-            devStatus = mpu.dmpInitialize();
-            mpu.setXGyroOffset(xGyro);
-            mpu.setYGyroOffset(yGyro);
-            mpu.setZGyroOffset(zGyro);
-            //mpu.setXAccelOffset(xAccel);
-            //mpu.setYAccelOffset(yAccel);
-            mpu.setZAccelOffset(zAccel);
-
-            // make sure it worked (returns 0 if so)
-            if (devStatus == 0)
-            {
-                // turn on the DMP, now that it's ready
-                //Firmata.sendString("Enabling DMP...");
-                mpu.setDMPEnabled(true);
-        
-                // enable Arduino interrupt detection
-                //Firmata.sendString("Enabling interrupt detection (Arduino external interrupt 0)...");
-                attachInterrupt(0, dmpDataReady, RISING);
-                mpuIntStatus = mpu.getIntStatus();
-        
-                // set our DMP Ready flag so the main loop() function knows it's okay to use it
-                //Firmata.sendString("DMP ready! Waiting for first interrupt...");
-                // get expected DMP packet size for later comparison
-                packetSize = mpu.dmpGetFIFOPacketSize();
-                
-                //setup PID
-                
-                pid.SetMode(AUTOMATIC);
-                pid.SetSampleTime(10);
-                pid.SetOutputLimits(-255, 255);  
-
-                dmpReady = true;
-
-                mpuInitialized = true;
-    
-                
-            } else {
-              
-            }
-        }
-       
-        /*mpu.setXGyroOffset(xGyro);
+        mpu.initialize();
+        devStatus = mpu.dmpInitialize();
+        mpu.setXGyroOffset(xGyro);
         mpu.setYGyroOffset(yGyro);
         mpu.setZGyroOffset(zGyro);
-        mpu.setXAccelOffset(xAccel);
-        mpu.setYAccelOffset(yAccel);
-        mpu.setZAccelOffset(zAccel);*/
+        //mpu.setXAccelOffset(xAccel);
+        //mpu.setYAccelOffset(yAccel);
+        mpu.setZAccelOffset(zAccel);
+
+        // make sure it worked (returns 0 if so)
+        if (devStatus == 0)
+        {
+            // turn on the DMP, now that it's ready
+            //Firmata.sendString("Enabling DMP...");
+            mpu.setDMPEnabled(true);
+        
+            // enable Arduino interrupt detection
+            //Firmata.sendString("Enabling interrupt detection (Arduino external interrupt 0)...");
+            attachInterrupt(0, dmpDataReady, RISING);
+            mpuIntStatus = mpu.getIntStatus();
+        
+            // set our DMP Ready flag so the main loop() function knows it's okay to use it
+            //Firmata.sendString("DMP ready! Waiting for first interrupt...");
+            // get expected DMP packet size for later comparison
+            packetSize = mpu.dmpGetFIFOPacketSize();
+                
+            //setup PID
+                
+            pid.SetMode(AUTOMATIC);
+            pid.SetSampleTime(10);
+            pid.SetOutputLimits(-255, 255);  
+
+            dmpReady = true;
+
+            mpuInitialized = true;
+    
+                
+        } else {
+              
+        }
       break;
-    case PID_SETUP:
-        double kp = *((double *) argv);
-        double ki = *((double *) (argv + 4));
-        double kd = *((double *) (argv + 8));
-        pid.SetTunings(kp, ki, kd);
+      }
+    case PID_SETUP: {
+       double kp = *((double *) argv);
+       double ki = *((double *) (argv + 4));
+       double kd = *((double *) (argv + 8));
+       pid.SetTunings(kp, ki, kd);
+
       break;
+    }
+      case MOTOR_CONTROLLER_SETUP:
+      break;
+
+  
   }
 }
 
@@ -897,43 +902,6 @@ void setup()
     ; // wait for serial port to connect. Needed for ATmega32u4-based boards and Arduino 101
   }
   //systemResetCallback();  // reset to default config
-
-  /*mpu.initialize();
-
-   
-    devStatus = mpu.dmpInitialize();
-
-    // supply your own gyro offsets here, scaled for min sensitivity
-    mpu.setXGyroOffset(220);
-    mpu.setYGyroOffset(76);
-    mpu.setZGyroOffset(-85);
-    mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
-
-    // make sure it worked (returns 0 if so)
-    if (devStatus == 0)
-    {
-        // turn on the DMP, now that it's ready
-       
-        mpu.setDMPEnabled(true);
-
-        // enable Arduino interrupt detection
-       
-        attachInterrupt(0, dmpDataReady, RISING);
-        mpuIntStatus = mpu.getIntStatus();
-
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        
-        dmpReady = true;
-
-        // get expected DMP packet size for later comparison
-        packetSize = mpu.dmpGetFIFOPacketSize();
-        
-        //setup PID
-        
-        pid.SetMode(AUTOMATIC);
-        pid.SetSampleTime(10);
-        pid.SetOutputLimits(-255, 255);  
-    }*/
 }
 
 /*==============================================================================
@@ -998,28 +966,4 @@ void loop()
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
         input = ypr[1] * 180/M_PI + 180;
    }
-
-  currentMillis = millis();
-  if (currentMillis - previousMillis > samplingInterval) {
-    previousMillis += samplingInterval;
-    // ANALOGREAD - do all analogReads() at the configured sampling interval //
-    for (pin = 0; pin < TOTAL_PINS; pin++) {
-      if (IS_PIN_ANALOG(pin) && Firmata.getPinMode(pin) == PIN_MODE_ANALOG) {
-        analogPin = PIN_TO_ANALOG(pin);
-        if (analogInputsToReport & (1 << analogPin)) {
-          Firmata.sendAnalog(analogPin, analogRead(analogPin));
-        }
-      }
-    }
-    // report i2c data for all device with read continuous mode enabled
-    if (queryIndex > -1) {
-      for (byte i = 0; i < queryIndex + 1; i++) {
-        readAndReportData(query[i].addr, query[i].reg, query[i].bytes, query[i].stopTX);
-      }
-    }
-  }
-
-#ifdef FIRMATA_SERIAL_FEATURE
-  serialFeature.update();
-#endif
 }
