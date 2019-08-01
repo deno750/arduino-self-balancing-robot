@@ -125,13 +125,7 @@ PID pid(&input, &output, &setpoint, 0, 0, 0, DIRECT);
 double motorSpeedFactorLeft = 0.6;
 double motorSpeedFactorRight = 0.5;
 //MOTOR CONTROLLER
-int ENA = 5;
-int IN1 = 6;
-int IN2 = 7;
-int IN3 = 8;
-int IN4 = 9;
-int ENB = 10;
-LMotorController motorController(ENA, IN1, IN2, ENB, IN3, IN4, motorSpeedFactorLeft, motorSpeedFactorRight);
+LMotorController* motorController = NULL;
 
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -139,8 +133,6 @@ void dmpDataReady()
 {
     mpuInterrupt = true;
 }
-
-boolean mpuInitialized = false;
 
 // Forward declare a few functions to avoid compiler errors with older versions
 // of the Arduino IDE.
@@ -801,27 +793,33 @@ void sysexCallback(byte command, byte argc, byte *argv)
             pid.SetSampleTime(10);
             pid.SetOutputLimits(-255, 255);  
 
-            dmpReady = true;
-
-            mpuInitialized = true;
-    
-                
-        } else {
-              
+            dmpReady = true;       
         }
       break;
       }
     case PID_SETUP: {
-       double kp = *((double *) argv);
-       double ki = *((double *) (argv + 4));
-       double kd = *((double *) (argv + 8));
+      //Float is 4 bytes in every arduino board instead of double that could be 8 bytes.
+       float kp = *((float *) argv);
+       float ki = *((float *) (argv + 4));
+       float kd = *((float *) (argv + 8));
        pid.SetTunings(kp, ki, kd);
 
       break;
     }
-      case MOTOR_CONTROLLER_SETUP:
+    case MOTOR_CONTROLLER_SETUP: {
+      if (motorController != NULL) {
+          delete motorController;
+          motorController = NULL;
+      }
+      int ENA = argv[0];
+      int IN1 = argv[1];
+      int IN2 = argv[2];
+      int ENB = argv[5];
+      int IN3 = argv[3];
+      int IN4 = argv[4];
+      motorController = new LMotorController(ENA, IN1, IN2, ENB, IN3, IN4, motorSpeedFactorLeft, motorSpeedFactorRight);
       break;
-
+    }
   
   }
 }
@@ -929,8 +927,9 @@ void loop()
         //no mpu data - performing PID calculations and output to motors
         
         pid.Compute();
-        motorController.move(output, MIN_ABS_SPEED);
-        
+        if (motorController != NULL) {
+          motorController->move(output, MIN_ABS_SPEED);
+        }
     }
 
     // reset interrupt flag and get INT_STATUS byte
