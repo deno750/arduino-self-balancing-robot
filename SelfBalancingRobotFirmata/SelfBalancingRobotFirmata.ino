@@ -46,6 +46,7 @@
 #define MOTOR_CONTROLLER_SETUP      0x0B
 #define RUN_ROBOT                   0x0C
 #define MPU_READY                   0x0D
+#define ANGLE_BALANCE               0x0E
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL   1
@@ -765,12 +766,25 @@ void sysexCallback(byte command, byte argc, byte *argv)
         int16_t zAccel = *((int16_t *) (argv + 10));
         mpu.initialize();
         devStatus = mpu.dmpInitialize();
-        mpu.setXGyroOffset(xGyro);
-        mpu.setYGyroOffset(yGyro);
-        mpu.setZGyroOffset(zGyro);
-        //mpu.setXAccelOffset(xAccel);
-        //mpu.setYAccelOffset(yAccel);
-        mpu.setZAccelOffset(zAccel);
+        
+        if (xGyro != 0) {
+          mpu.setXGyroOffset(xGyro);
+        }
+        if (yGyro != 0) {
+          mpu.setYGyroOffset(yGyro);
+        }
+        if (zGyro != 0) {
+          mpu.setZGyroOffset(zGyro);
+        }
+        if (xAccel != 0) {
+          mpu.setXAccelOffset(xAccel);
+        }
+        if (yAccel != 0) {
+          mpu.setYAccelOffset(yAccel);
+        }
+        if (zAccel != 0) {
+          mpu.setZAccelOffset(zAccel);
+        }
 
         // make sure it worked (returns 0 if so)
         if (devStatus == 0)
@@ -790,11 +804,11 @@ void sysexCallback(byte command, byte argc, byte *argv)
             packetSize = mpu.dmpGetFIFOPacketSize();
                 
             //setup PID
-                
+
+            //Values that are not useful to set throught firmata. 
             pid.SetMode(AUTOMATIC);
             pid.SetSampleTime(10);
-            pid.SetOutputLimits(-255, 255);  
-
+            pid.SetOutputLimits(-255, 255);  //Output limits [-255,255] are needed in order to change motor velocity. PWM accepts values [0, 255]
             dmpReady = true;       
         }
       break;
@@ -819,8 +833,17 @@ void sysexCallback(byte command, byte argc, byte *argv)
       int ENB = argv[5];
       int IN3 = argv[3];
       int IN4 = argv[4];
+      float motorSpeedFactorLeft = argv[6] / 100.0f;
+      float motorSpeedFactorRight = argv[7] / 100.0f;
       motorController = new LMotorController(ENA, IN1, IN2, ENB, IN3, IN4, motorSpeedFactorLeft, motorSpeedFactorRight);
       break;
+    }
+
+    case ANGLE_BALANCE: {
+      if (argc == 4) {
+        setpoint = *((float *) argv);
+        break;
+      }
     }
 
     case RUN_ROBOT: {
@@ -869,7 +892,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-        input = ypr[1] * 180/M_PI + 180;
+        input = ypr[1] * 180/M_PI + 180; //yrp[1] returns the pitch. Pitch from radians is converted to grad
    }
       break;
     }
