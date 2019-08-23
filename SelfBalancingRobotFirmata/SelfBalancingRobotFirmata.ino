@@ -49,6 +49,7 @@
 #define ANGLE_BALANCE               0x0E
 #define TURN_LEFT                   0x0F
 #define TURN_RIGHT                  0x11
+#define CAN_RUN                     0x12
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL   1
@@ -129,6 +130,8 @@ PID pid(&input, &output, &setpoint, 0, 0, 0, DIRECT);
 
 //MOTOR CONTROLLER
 LMotorController* motorController = NULL;
+
+boolean allowedToRun = false;
 
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -825,8 +828,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
        float ki = 0;//*((float *) (argv + 4));
        float kd = 0;//*((float *) (argv + 8));
        memcpy(&kp, argv, sizeof(float));
-       memcpy(&kp, argv + 4, sizeof(float));
-       memcpy(&kp, argv + 8, sizeof(float));
+       memcpy(&ki, argv + 4, sizeof(float));
+       memcpy(&kd, argv + 8, sizeof(float));
        pid.SetTunings(kp, ki, kd);
 
       break;
@@ -866,6 +869,13 @@ void sysexCallback(byte command, byte argc, byte *argv)
     case TURN_RIGHT: {
       if (motorController != NULL) {
         motorController->turnRight(255, false);
+      }
+      break;
+    }
+    case CAN_RUN: {
+      allowedToRun = argv[0] == 1;
+      if (motorController != NULL) {
+        motorController->move(0);
       }
       break;
     }
@@ -965,7 +975,7 @@ void loop()
    * checking digital inputs.  */
   while (Firmata.available()) 
     Firmata.processInput();
-
+    if (!allowedToRun) return;
     if (!dmpReady) return;
 
     // wait for MPU interrupt or extra packet(s) available
