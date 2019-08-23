@@ -118,7 +118,7 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
 //PID
-double originalSetpoint = 175.8;
+double originalSetpoint = 85.8;
 double setpoint = originalSetpoint;
 double movingAngleOffset = 0.1;
 double input, output;
@@ -1051,6 +1051,6 @@ void loop()
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-        input = ypr[1] * 180/M_PI + 180; //yrp[1] returns the pitch. Pitch from radians is converted to grad
+        input = ypr[1] * 180/M_PI + 90; //yrp[1] returns the pitch. Pitch from radians is converted to grad
    }
 }
