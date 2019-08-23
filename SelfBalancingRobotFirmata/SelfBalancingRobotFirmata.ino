@@ -758,12 +758,18 @@ void sysexCallback(byte command, byte argc, byte *argv)
       break;
     }
       case MPU_SETUP: {
-        int16_t xGyro = *((int16_t *) argv);
-        int16_t yGyro = *((int16_t *) (argv + 2));
-        int16_t zGyro = *((int16_t *) (argv + 4));
-        int16_t xAccel = *((int16_t *) (argv + 6));
-        int16_t yAccel = *((int16_t *) (argv + 8));
-        int16_t zAccel = *((int16_t *) (argv + 10));
+        int16_t xGyro = 0;//*((int16_t *) argv);
+        int16_t yGyro = 0;//*((int16_t *) (argv + 2));
+        int16_t zGyro = 0;//*((int16_t *) (argv + 4));
+        int16_t xAccel = 0;//*((int16_t *) (argv + 6));
+        int16_t yAccel = 0;//*((int16_t *) (argv + 8));
+        int16_t zAccel = 0;//*((int16_t *) (argv + 10));
+        memcpy(&xGyro, argv, sizeof(int16_t));
+        memcpy(&yGyro, argv + 2, sizeof(int16_t));
+        memcpy(&zGyro, argv + 4, sizeof(int16_t));
+        memcpy(&xAccel, argv + 6, sizeof(int16_t));
+        memcpy(&yAccel, argv + 8, sizeof(int16_t));
+        memcpy(&zAccel, argv + 10, sizeof(int16_t));
         mpu.initialize();
         devStatus = mpu.dmpInitialize();
         
@@ -815,9 +821,12 @@ void sysexCallback(byte command, byte argc, byte *argv)
       }
     case PID_SETUP: {
       //Float is 4 bytes in every arduino board instead of double that could be 8 bytes in arduino due.
-       float kp = *((float *) argv);
-       float ki = *((float *) (argv + 4));
-       float kd = *((float *) (argv + 8));
+       float kp = 0;//*((float *) argv);
+       float ki = 0;//*((float *) (argv + 4));
+       float kd = 0;//*((float *) (argv + 8));
+       memcpy(&kp, argv, sizeof(float));
+       memcpy(&kp, argv + 4, sizeof(float));
+       memcpy(&kp, argv + 8, sizeof(float));
        pid.SetTunings(kp, ki, kd);
 
       break;
@@ -841,7 +850,8 @@ void sysexCallback(byte command, byte argc, byte *argv)
 
     case ANGLE_BALANCE: {
       if (argc == 4) {
-        setpoint = *((float *) argv);
+        memcpy(&setpoint, argv, sizeof(float));
+        //setpoint = *((float *) argv);
       }
       break;
     }
