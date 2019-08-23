@@ -47,6 +47,8 @@
 #define RUN_ROBOT                   0x0C
 #define MPU_READY                   0x0D
 #define ANGLE_BALANCE               0x0E
+#define TURN_LEFT                   0x0F
+#define TURN_RIGHT                  0x11
 
 // the minimum interval for sampling analog input
 #define MINIMUM_SAMPLING_INTERVAL   1
@@ -812,7 +814,7 @@ void sysexCallback(byte command, byte argc, byte *argv)
       break;
       }
     case PID_SETUP: {
-      //Float is 4 bytes in every arduino board instead of double that could be 8 bytes.
+      //Float is 4 bytes in every arduino board instead of double that could be 8 bytes in arduino due.
        float kp = *((float *) argv);
        float ki = *((float *) (argv + 4));
        float kd = *((float *) (argv + 8));
@@ -840,76 +842,23 @@ void sysexCallback(byte command, byte argc, byte *argv)
     case ANGLE_BALANCE: {
       if (argc == 4) {
         setpoint = *((float *) argv);
-        digitalWrite(13, HIGH);
       }
       break;
     }
 
-    case RUN_ROBOT: {
-      // if programming failed, don't try to do anything
-    /*if (!dmpReady) return;
-
-    // wait for MPU interrupt or extra packet(s) available
-    while (!mpuInterrupt && fifoCount < packetSize)
-    {
-        //no mpu data - performing PID calculations and output to motors
-        
-        pid.Compute();
-        if (motorController != NULL) {
-          motorController->move(output, MIN_ABS_SPEED);
-        }
-    }
-
-    // reset interrupt flag and get INT_STATUS byte
-    mpuInterrupt = false;
-    mpuIntStatus = mpu.getIntStatus();
-
-    // get current FIFO count
-    fifoCount = mpu.getFIFOCount();
-
-    // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & 0x10) || fifoCount == 1024)
-    {
-        // reset so we can continue cleanly
-        mpu.resetFIFO();
-        //Serial.println(F("FIFO overflow!"));
-
-    // otherwise, check for DMP data ready interrupt (this should happen frequently)
-    }
-    else if (mpuIntStatus & 0x02)
-    {
-        // wait for correct available data length, should be a VERY short wait
-        while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-
-        // read a packet from FIFO
-        mpu.getFIFOBytes(fifoBuffer, packetSize);
-        
-        // track FIFO count here in case there is > 1 packet available
-        // (this lets us immediately read more without waiting for an interrupt)
-        fifoCount -= packetSize;
-
-        mpu.dmpGetQuaternion(&q, fifoBuffer);
-        mpu.dmpGetGravity(&gravity, &q);
-        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-        input = ypr[1] * 180/M_PI + 180; //yrp[1] returns the pitch. Pitch from radians is converted to grad
-   }*/
+    case TURN_LEFT: {
+      if (motorController != NULL) {
+        motorController->turnLeft(255, false);
+      }
       break;
     }
-    case MPU_READY: {
-      /*Firmata.write(START_SYSEX);
-      Firmata.write(STRING_DATA);
-      //Firmata.write((!mpuInterrupt && fifoCount < packetSize) ? "false" : "true");
-      Firmata.write("90");
-      Firmata.write(END_SYSEX);*/
 
-      Serial.write(START_SYSEX);
-      Serial.write(STRING_DATA);
-      Serial.write(90);
-      Serial.write(END_SYSEX);
-      digitalWrite(13, HIGH);
+    case TURN_RIGHT: {
+      if (motorController != NULL) {
+        motorController->turnRight(255, false);
+      }
       break;
     }
-  
   }
 }
 
